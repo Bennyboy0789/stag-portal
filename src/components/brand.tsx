@@ -1,0 +1,27 @@
+import { cn } from "@/lib/utils";
+
+/**
+ * The Stag antler mark (same geometry as app/icon.svg), rendered inline so
+ * it's identical on every platform — unlike emoji glyphs.
+ */
+export function StagMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 64 64"
+      className={cn("text-accent", className)}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="4.5"
+      strokeLinecap="round"
+      aria-hidden
+    >
+      <path d="M20 46 V30 C20 22 26 18 32 18 C38 18 44 22 44 30 V46" />
+      <path d="M20 30 C14 30 10 25 10 18" />
+      <path d="M20 24 C16 23 14 20 14 15" />
+      <path d="M44 30 C50 30 54 25 54 18" />
+      <path d="M44 24 C48 23 50 20 50 15" />
+      <circle cx="26" cy="34" r="2" fill="currentColor" stroke="none" />
+      <circle cx="38" cy="34" r="2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}

@@ -1,36 +1,100 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Stag Client Portal
 
-## Getting Started
+A per-client marketing dashboard deployed alongside the client's website.
+One portal instance per client, each with its own SQLite database and env
+config. Clients log in to see their **leads**, manage their **blog**, view
+**search analytics**, and submit **maintenance tickets**.
 
-First, run the development server:
+Built with Next.js 16 (App Router), SQLite (better-sqlite3), Tailwind CSS v4,
+dnd-kit and Recharts. Dark theme, mobile friendly.
+
+## Quick start
 
 ```bash
+npm install
+cp .env.example .env.local   # fill in at least JWT_SECRET
+npm run create-user -- client@example.com their-password
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000 and sign in. (Instead of `create-user` you can set
+`PORTAL_ADMIN_EMAIL` / `PORTAL_ADMIN_PASSWORD` — the user is seeded on first
+boot when the users table is empty.)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The database file is created automatically at `DATABASE_URL`
+(default `./data/portal.db`), including schema.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Features
 
-## Learn More
+| Area | Details |
+| --- | --- |
+| **Leads** | Kanban board (New → Contacted → Won → Lost) with drag & drop, lead details + notes, deal values that roll up into a "revenue won" stat, manual entry for phone/GBP leads, auto-capture from the website form, CSV export |
+| **Blog** | Markdown editor with live preview, auto-slugs and draft/publish; published posts served to the public site via API |
+| **Analytics** | Google Search Console: clicks, impressions, CTR, position, click trend chart, top queries/pages, 7/30/90-day ranges |
+| **Tickets** | Subject/description/priority, status tracking, instant Discord notification to the Stag team |
+| **Auth** | Single portal user, bcrypt password, JWT session cookie (7 days), rate-limited login |
 
-To learn more about Next.js, take a look at the following resources:
+## Public API (consumed by the client's website)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+GET  /api/posts?status=published   → { posts: [...] }   published posts only
+GET  /api/posts?slug=my-post       → { post: {...} }    single published post
+POST /api/leads/capture            → { ok, id }         contact form submissions
+      body: { name, email?, phone?, message?, source?: "website_form" }
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+CORS on both endpoints is restricted to `CLIENT_DOMAIN`. Server-to-server
+calls (no Origin header) always work. Example website form handler:
 
-## Deploy on Vercel
+```js
+await fetch("https://portal.acmeplumbing.com/api/leads/capture", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ name, email, phone, message }),
+});
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Search Console setup (per client)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. In Google Cloud Console, create an OAuth client (Web application) with
+   redirect URI `{APP_URL}/api/auth/google/callback`; enable the
+   **Search Console API**.
+2. Set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `APP_URL`.
+3. Client hits **Settings → Connect Search Console**, grants read-only access
+   (`webmasters.readonly`), picks the property to track.
+4. Data refreshes via the **Refresh** button, or schedule a daily ping to
+   `GET /api/cron/sync` with header `Authorization: Bearer {CRON_SECRET}`
+   (e.g. Vercel Cron). The refresh token is stored AES-256-GCM encrypted.
+
+## Environment variables
+
+See [.env.example](.env.example) for the full annotated list:
+`JWT_SECRET` (required), `CLIENT_NAME`, `CLIENT_DOMAIN`, `APP_URL`,
+`DATABASE_URL`, `PORTAL_ADMIN_EMAIL/PASSWORD`, `DISCORD_WEBHOOK_URL`,
+`GOOGLE_CLIENT_ID/SECRET`, `CRON_SECRET`.
+
+## Deployment notes
+
+- **One deployment per client** (separate Vercel project or a small VPS),
+  domain like `portal.client-domain.com`, env vars set per instance.
+- SQLite needs a **persistent writable disk**. On Vercel's serverless
+  filesystem this won't persist — either attach a persistent volume
+  (Fly.io/Railway/VPS all work out of the box) or swap the data layer to
+  Turso (`@libsql/client`); the SQL in `src/lib/data/*` is standard SQLite,
+  and swapping means replacing `src/lib/db.ts`'s better-sqlite3 handle.
+- The login rate limiter is in-memory (fine for single-instance portals).
+
+## Project layout
+
+```
+src/
+  proxy.ts               auth redirects (Next 16's middleware)
+  lib/                   db, session (jose), DAL, crypto, rate limit, CORS
+    data/                leads / posts / tickets / gsc / discord
+  app/
+    page.tsx             login (portal root)
+    actions/             server actions (auth, leads, posts, tickets, gsc, settings)
+    api/                 public capture + posts, Google OAuth, cron sync
+    dashboard/           overview, leads kanban, blog, analytics, tickets, settings
+scripts/create-user.mjs  create/reset the portal user
+```
